@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Web Privacy Sentinel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f4f4f4;
+      color: #333;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 1.8em;
+      color: #007bff;
+      text-align: center;
+    }
+    p {
+      text-align: center;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 1.1em;
+      display: block;
+      margin: 20px auto;
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #report-container {
+      margin-top: 20px;
+      border-top: 1px solid #ddd;
+      padding-top: 15px;
+    }
+    #report-container h2 {
+      font-size: 1.5em;
+      color: #007bff;
+      text-align: center;
+    }
+    .tab-report {
+      margin-bottom: 25px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background-color: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .safe {
+      color: #28a745;
+      font-weight: bold;
+    }
+    .risky {
+      color: #dc3545;
+      font-weight: bold;
+    }
+    .risky-bg {
+      background-color: #ffebee !important;
+      border-left: 5px solid #dc3545;
+    }
+    ul {
+      list-style-type: disc;
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    .suggestions {
+      font-style: italic;
+      color: #28a745;
+      background-color: #f8fff8;
+      padding: 10px;
+      border-radius: 5px;
+      margin-top: 10px;
+    }
+    .muted {
+      color: #666;
+      font-size: 0.9em;
+    }
+    pre.csp {
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+      font-size: 0.85em;
+      border: 1px solid #eee;
+    }
+    details {
+      margin-top: 16px;
+      border: 1px solid #ffcccc;
+      border-radius: 6px;
+      padding: 10px;
+      background-color: #fff8f8;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: bold;
+      color: #d32f2f;
+      font-size: 1.1em;
+      padding: 8px 0;
+    }
+    .exposed-data {
+      margin-left: 20px;
+      font-size: 0.95em;
+      line-height: 1.7;
+      padding: 10px 0;
+    }
+    code {
+      background: #fff0f0;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+      color: #c7254e;
+    }
+  </style>
+</head>
+<body>
+  <h1>Web Privacy Sentinel</h1>
+  <p>Click below to scan all your open tabs for <strong>privacy risks</strong> and <strong>what the website can steal</strong>.</p>
+  <button id="scan-btn">Scan All Tabs Now</button>
+  <div id="report-container"></div>
+
+  <script>
+    // === CONFIG ===
+    const extensionId = 'bnadifkpiknjappjcjccchfiadonmlbi'; // Change if your extension ID is different
+
+    // === SCAN BUTTON ===
+    document.getElementById('scan-btn').addEventListener('click', () => {
+      const btn = document.getElementById('scan-btn');
+      btn.disabled = true;
+      btn.textContent = 'Scanning all tabs...';
+      
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(extensionId, { action: 'scanTabs' }, (response) => {
+          btn.disabled = false;
+          btn.textContent = 'Scan All Tabs Now';
+          
+          if (chrome.runtime.lastError) {
+            alert('Error: Could not connect to the privacy scanner. Make sure the extension is installed and this page is allowed (localhost).');
+            return;
+          }
+          if (response && response.tabs) {
+            displayReport(response.tabs);
+          } else if (response && response.error) {
+            alert('Scanner error: ' + response.error);
+          } else {
+            alert('No results. Try opening some tabs first.');
+          }
+        });
+      } else {
+        alert('This tool only works in Google Chrome with the Web Privacy Sentinel extension installed.');
+      }
+    });
+
+    // === SUGGESTIONS (Simple Language) ===
+    function getSimpleSuggestions(tab) {
+      const suggestions = [];
+      const exp = tab.exposures || [];
+      const pc = tab.pageChecks || {};
+
+      if (exp.some(e => e.toLowerCase().includes('http') && !e.includes('https'))) {
+        suggestions.push('The site is not secure (no lock icon). Don’t enter passwords or card details.');
+      }
+      if (exp.some(e => e.toLowerCase().includes('webrtc'))) {
+        suggestions.push('Your real IP address might be visible. Use a VPN.');
+      }
+      if (pc.trackers && pc.trackers.length) {
+        suggestions.push(`This site uses ${pc.trackers.length} trackers (like Google). Install uBlock Origin to block them.`);
+      }
+      if (pc.fingerprintingDetected) {
+        suggestions.push('The site is trying to fingerprint your browser (track you without cookies).');
+      }
+      if (pc.mixedContent) {
+        suggestions.push('The site loads unsafe content. Avoid logging in.');
+      }
+      if (pc.permissions) {
+        const granted = Object.keys(pc.permissions).filter(k => pc.permissions[k] === 'granted');
+        if (granted.length) {
+          suggestions.push(`The site can access: ${granted.map(p => p === 'clipboard-write' ? 'your clipboard' : p).join(', ')}. Revoke if not needed.`);
+        }
+      }
+      if (pc.xss && pc.xss.reflected) {
+        suggestions.push('This site has a serious security hole (XSS). An attacker could steal your login or data.');
+      }
+      if (!pc.xss || !pc.xss.csp) {
+        suggestions.push('The site has no security shield (CSP). It’s easier to hack.');
+      }
+
+      suggestions.push('Use a privacy browser (Brave, Firefox) or enable “Do Not Track”.');
+      return suggestions;
+    }
+
+    // === MAIN REPORT DISPLAY ===
+    function displayReport(tabs) {
+      let html = '<h2>Privacy Scan Results</h2>';
+      
+      if (!tabs || tabs.length === 0) {
+        html += '<p>No tabs to scan.</p>';
+        document.getElementById('report-container').innerHTML = html;
+        return;
+      }
+
+      // Filter: Only show tabs with XSS-related risks
+      const riskyTabs = tabs.filter(tab => {
+        const pc = tab.pageChecks || {};
+        const x = pc.xss || {};
+        return x.reflected || 
+               (pc.inlineHandlers && pc.inlineHandlers.length > 0) || 
+               (tab.exposures && tab.exposures.some(e => e.toLowerCase().includes('xss')));
+      });
+
+      riskyTabs.sort((a, b) => b.riskScore - a.riskScore);
+
+      if (riskyTabs.length === 0) {
+        html += '<p><strong class="safe">All tabs are safe!</strong> No XSS or tracking risks found.</p>';
+      } else {
+        const avgRisk = Math.round(riskyTabs.reduce((s, t) => s + t.riskScore, 0) / riskyTabs.length);
+        html += `<p><strong>${riskyTabs.length} risky tab(s) found</strong> | Average Risk: <strong>${avgRisk}/100</strong></p>`;
+
+        riskyTabs.forEach(tab => {
+          const isHighRisk = tab.riskScore > 60;
+          html += `<div class="tab-report ${isHighRisk ? 'risky-bg' : ''}">`;
+          html += `<p><strong>${escapeHtml(tab.title)}</strong><br><small>${escapeHtml(tab.hostname)}</small></p>`;
+          html += `<p>Risk Level: <strong ${isHighRisk ? 'style="color:#d32f2f"' : ''}>${tab.riskScore}/100</strong></p>`;
+
+          // Risks
+          if (tab.exposures && tab.exposures.length) {
+            html += '<p class="risky">Warning: Risks Found</p><ul>';
+            tab.exposures.forEach(exp => {
+              html += `<li>${escapeHtml(exp)}</li>`;
+            });
+            html += '</ul>';
+
+            // Trackers
+            if (tab.pageChecks?.trackers?.length) {
+              html += `<p><strong>Trackers:</strong> ${escapeHtml(tab.pageChecks.trackers.join(', '))}</p>`;
+            }
+
+            // Reflected XSS
+            if (tab.pageChecks?.xss?.reflected) {
+              html += `<p class="risky"><strong>Critical: Site can be hacked via search box</strong></p>`;
+            }
+
+            // === EXPOSED DATA (SIMPLE LANGUAGE) ===
+            if (tab.exposedData) {
+              html += `
+                <details>
+                  <summary>What this site can steal from you (click to see)</summary>
+                  <div class="exposed-data">
+              `;
+
+              // Reflected Token
+              if (tab.exposedData.reflectedToken) {
+                html += `
+                  <p><strong>Search box is broken</strong><br>
+                  We typed a fake word and the site showed it back: <code>${escapeHtml(tab.exposedData.reflectedToken)}</code><br>
+                  <span style="color:#b71c1c;">An attacker could type code instead and steal your account.</span></p>
+                `;
+              }
+
+              // Inline Handlers
+              if (tab.exposedData.inlineHandlers?.length) {
+                html += `
+                  <p><strong>Clickable traps</strong> (${tab.exposedData.inlineHandlers.length} found)<br>
+                  These buttons run secret code when clicked:<br>
+                  ${tab.exposedData.inlineHandlers.map(h => 
+                    `• <code>${escapeHtml(h.name)}</code> on <code>${escapeHtml(h.sample.split(' ')[0])}</code>`
+                  ).join('<br>')}
+                  </p>
+                `;
+              }
+
+              // javascript: links
+              if (tab.exposedData.jsLinks?.length) {
+                html += `
+                  <p><strong>Fake links that run code</strong> (${tab.exposedData.jsLinks.length})<br>
+                  These links don’t go anywhere — they run JavaScript:<br>
+                  ${tab.exposedData.jsLinks.map(l => 
+                    `• <code>javascript:...</code>`
+                  ).join('<br>')}
+                  </p>
+                `;
+              }
+
+              // Third-party cookies
+              if (tab.exposedData.thirdPartyCookies?.length) {
+                html += `
+                  <p><strong>Tracking cookies from other companies</strong> (${tab.exposedData.thirdPartyCookies.length})<br>
+                  These let Google/Facebook follow you everywhere:<br>
+                  ${tab.exposedData.thirdPartyCookies.map(c => 
+                    `• <strong>${escapeHtml(c.name)}</strong> = ${escapeHtml(c.value.substring(0, 30))}...`
+                  ).join('<br>')}
+                  </p>
+                `;
+              }
+
+              // Permissions
+              if (tab.exposedData.grantedPermissions?.length) {
+                html += `
+                  <p><strong>The site can already use:</strong><br>
+                  ${tab.exposedData.grantedPermissions.map(p => 
+                    `• ${p === 'clipboard-write' ? 'copy & paste anything silently' : p}`
+                  ).join('<br>')}
+                  </p>
+                `;
+              }
+
+              if (tab.exposedData.clipboardWriteGranted) {
+                html += `
+                  <p><strong>It can change what you copy</strong><br>
+                  If you copy a link, it might replace it with a fake one.</p>
+                `;
+              }
+
+              html += `</div></details>`;
+            }
+
+            // Suggestions
+            const suggestions = getSimpleSuggestions(tab);
+            html += '<div class="suggestions"><strong>What you should do:</strong><br>';
+            suggestions.forEach(s => html += `• ${s}<br>`);
+            html += '</div>';
+          } else {
+            html += '<p class="safe">No major risks found on this tab.</p>';
+          }
+
+          html += `</div>`;
+        });
+      }
+
+      document.getElementById('report-container').innerHTML = html;
+    }
+
+    // === SAFE HTML ESCAPE ===
+    function escapeHtml(s) {
+      if (!s && s !== 0) return '';
+      return String(s).replace(/[&<>"'`=\/]/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
+        "'": "&#39;", "/": "&#x2F;", "`": "&#x60;", "=": "&#x3D;"
+      })[ch]);
+    }
+  </script>
+</body>
+</html>

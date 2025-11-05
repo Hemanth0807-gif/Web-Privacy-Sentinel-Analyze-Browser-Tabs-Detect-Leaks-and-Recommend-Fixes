@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Web Privacy Sentinel Helper",
+  "version": "3.0",
+  "description": "Generic privacy + basic XSS scanner helper for Web Privacy Sentinel web app (core tests only).",
+  "permissions": [
+    "tabs",
+    "notifications",
+    "privacy",
+    "scripting",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "externally_connectable": {
+    "matches": ["http://localhost/*", "http://127.0.0.1/*"]
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_script_helpers.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
